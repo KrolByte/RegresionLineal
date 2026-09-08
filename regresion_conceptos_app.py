@@ -95,6 +95,11 @@ st.markdown(
 
 # ------------------ BARRA LATERAL: configuración mínima (solo rango de fechas) ----
 with st.sidebar:
+    # Opción para subir logo o proveer URL (se muestra en encabezado)
+    st.markdown("### Branding")
+    logo_upload = st.file_uploader("(Opcional) Subir logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
+    logo_url = st.text_input("(Opcional) URL de logo", value="")
+
     st.markdown(f"<div class='metric-box'><strong>{STATION_NAME}</strong><br>Codigo: {STATION_CODE}<br>Calidad: {DATA_QUALITY}</div>", unsafe_allow_html=True)
     st.markdown("---")
     st.header("🔎 Filtros")
@@ -140,13 +145,27 @@ with st.sidebar:
     st.metric("Registros", f"{len(df)}")
     st.metric("Precio medio (MedHouseVal)", f"{df['MedHouseVal'].mean():.3f}")
 
-# Encabezado principal
-st.markdown(f"<h1 class='big-title'>📈 Regresión — Conceptos clave</h1>", unsafe_allow_html=True)
-st.markdown(
-    "La regresión permite predecir valores numéricos a partir de datos históricos. "
-    "Esta app recorre, de forma interactiva, las piezas que componen un modelo de regresión: "
-    "**el modelo, la función de costo, el gradiente, el algoritmo de aprendizaje y las métricas "
-    "para evaluar qué tan bien predice.** Todo con datos reales de vivienda en California.")
+# Encabezado principal con logo (si se proporcionó)
+col_logo, col_title = st.columns([1, 6])
+with col_logo:
+    if logo_upload is not None:
+        st.image(logo_upload, width=120)
+    elif logo_url:
+        try:
+            st.image(logo_url, width=120)
+        except Exception:
+            st.text("")
+    else:
+        # espacio reservado
+        st.write("")
+
+with col_title:
+    st.markdown(f"<h1 class='big-title'>📈 Regresión — Conceptos clave</h1>", unsafe_allow_html=True)
+    st.markdown(
+        "La regresión permite predecir valores numéricos a partir de datos históricos. "
+        "Esta app recorre, de forma interactiva, las piezas que componen un modelo de regresión: "
+        "**el modelo, la función de costo, el gradiente, el algoritmo de aprendizaje y las métricas "
+        "para evaluar qué tan bien predice.** Todo con datos reales de vivienda en California.")
 
 # Mostrar tabla de datos con estilo bonito (limitada para no sobrecargar la UI)
 with st.expander("📋 Ver tabla de datos (muestra)", expanded=False):
@@ -159,6 +178,10 @@ with st.expander("📋 Ver tabla de datos (muestra)", expanded=False):
     sty = mostrar.style.format({"MedHouseVal": "{:.3f}"}).background_gradient(subset=FEATURES + ["MedHouseVal"], cmap="Blues")
     st.write("Tabla (muestra):")
     st.write(sty.to_html(), unsafe_allow_html=True)
+
+    # Botón para descargar la tabla filtrada
+    csv_bytes = mostrar.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Descargar tabla filtrada (CSV)", data=csv_bytes, file_name="tabla_filtrada.csv", mime="text/csv")
 
 # Pestañas principales
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -445,7 +468,7 @@ with tab5:
 Con el modelo entrenado, necesitamos medir qué tan bien predice sobre datos **nunca vistos**:
 
 - **MAE** — error absoluto promedio, en las unidades originales.
-- **RMSE** — penaliza más los errores grandes; es $\\sqrt{MSE}$.
+- **RMSE** — penaliza más los errores grandes; es $\sqrt{MSE}$.
 - **R²** — proporción de la variabilidad de `y` que el modelo logra explicar (0 a 1).
 """
     )
