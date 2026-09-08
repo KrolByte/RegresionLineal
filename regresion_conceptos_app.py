@@ -16,12 +16,32 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import plotly.express as px
 from sklearn.datasets import fetch_california_housing
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 st.set_page_config(page_title="Regresión — Conceptos clave", layout="wide")
+
+# -- Apariencia CSS (fondo, tipografías, tarjetas) --------------------------------
+st.markdown(
+    """
+    <style>
+    /* Fondo con degradado suave */
+    .stApp {
+        background: linear-gradient(120deg, #f5fbff 0%, #eef9f3 50%, #fffaf0 100%);
+    }
+    /* Encabezado grande */
+    .big-title {font-size:28px; font-weight:700; color:#0B3954;}
+    /* Tarjetas de métricas personalizadas */
+    .metric-box {background: linear-gradient(90deg,#ffffffcc,#f0f8ffcc); padding:10px; border-radius:8px;}
+    /* Tabla bonita */
+    .dataframe thead tr th {background-color: #0B3954; color: white;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 FEATURES = ["MedInc", "HouseAge", "AveRooms", "AveBedrms", "Population", "AveOccup"]
 FEATURE_LABELS = {
@@ -42,16 +62,65 @@ def cargar_datos():
     df = housing.frame.sample(n=1200, random_state=42).reset_index(drop=True)
     return df
 
-df = cargar_datos()
+# Añadimos una columna de fecha sintética para poder filtrar por rango
+def añadir_fechas(df, inicio="1990-01-01", fin="1992-12-31"):
+    df = df.copy()
+    inicio = pd.to_datetime(inicio)
+    fin = pd.to_datetime(fin)
+    fechas = pd.date_range(inicio, fin, periods=len(df))
+    df["date"] = fechas
+    return df
 
-st.title("📈 Regresión — Conceptos clave")
+# Metadatos estáticos (no forman parte de la configuración de búsqueda)
+STATION_NAME = "Estación Central — CA Housing"
+STATION_CODE = "EC-CA-1990"
+DATA_QUALITY = "Alta (completa, sin valores faltantes)"
+
+# Cargar y preparar datos
+df = cargar_datos()
+df = añadir_fechas(df)
+
+# ------------------ BARRA LATERAL: configuración mínima (solo rango de fechas) ----
+with st.sidebar:
+    st.markdown(f"<div class='metric-box'><strong>{STATION_NAME}</strong><br>Codigo: {STATION_CODE}<br>Calidad: {DATA_QUALITY}</div>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.header("🔎 Filtros")
+    st.markdown("Los metadatos de estación son estáticos arriba; aquí solo puedes filtrar por fechas.")
+
+    date_min = df["date"].min().date()
+    date_max = df["date"].max().date()
+    date_range = st.date_input("Rango de fechas (desde - hasta)", value=[date_min, date_max], min_value=date_min, max_value=date_max)
+
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+        start_date, end_date = date_range
+        mask = (df["date"].dt.date >= start_date) & (df["date"].dt.date <= end_date)
+        df = df.loc[mask].reset_index(drop=True)
+
+    st.markdown("---")
+    st.markdown("## Resumen rápido")
+    st.metric("Registros", f"{len(df)}")
+    st.metric("Precio medio (MedHouseVal)", f"{df['MedHouseVal'].mean():.3f}")
+
+st.markdown("<h1 class='big-title'>📈 Regresión — Conceptos clave</h1>", unsafe_allow_html=True)
 st.markdown(
     "La regresión permite predecir valores numéricos a partir de datos históricos. "
     "Esta app recorre, de forma interactiva, las piezas que componen un modelo de regresión: "
     "**el modelo, la función de costo, el gradiente, el algoritmo de aprendizaje y las métricas "
-    "para evaluar qué tan bien predice.** Todo con datos reales de vivienda en California."
-)
+    "para evaluar qué tan bien predice.** Todo con datos reales de vivienda en California.")
 
+# Mostrar tabla de datos con estilo bonito (limitada para no sobrecargar la UI)
+with st.expander("📋 Ver tabla de datos (muestra)", expanded=False):
+    muestra = df.sort_values("date", ascending=False).head(200)
+    # Selección de columnas para mostrar
+    mostrar_cols = ["date", "MedHouseVal"] + FEATURES
+    mostrar = muestra[mostrar_cols].copy()
+    mostrar["date"] = mostrar["date"].dt.date
+    # Usamos Styler para formato y gradiente
+    sty = mostrar.style.format({"MedHouseVal": "{:.3f}"}).background_gradient(subset=FEATURES + ["MedHouseVal"], cmap="Blues")
+    st.write("Tabla (muestra):")
+    st.write(sty.to_html(), unsafe_allow_html=True)
+
+# Pestañas principales
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "1️⃣ Regresión simple",
     "2️⃣ Regresión múltiple",
@@ -59,6 +128,9 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "4️⃣ Descenso de gradiente",
     "5️⃣ Métricas de evaluación",
 ])
+
+# (Usamos un estilo gráfico coherente)
+plt.style.use("seaborn-v0_8")
 
 # ====================================================================
 # TAB 1 — REGRESIÓN SIMPLE
@@ -72,7 +144,7 @@ Un modelo de regresión lineal simple predice un valor con una sola variable de 
 $$\hat{y} = w \cdot x + b$$
 
 Mueve `w` (pendiente) y `b` (intercepto) manualmente y observa cómo cambia el error,
-o deja que el algoritmo encuentre el ajuste óptimo.
+ o deja que el algoritmo encuentre el ajuste óptimo.
 """
     )
 
@@ -104,14 +176,14 @@ o deja que el algoritmo encuentre el ajuste óptimo.
         st.metric("Error actual (MSE)", f"{mse_actual:.4f}")
 
     with col_b:
-        fig, ax = plt.subplots(figsize=(6, 4.2))
-        ax.scatter(x, y, alpha=0.15, s=12, color="#4C72B0")
-        x_line = np.linspace(x.min(), x.max(), 100)
-        ax.plot(x_line, w_used * x_line + b_used, color="red", linewidth=2.5)
-        ax.set_xlabel(f"{var_simple} ({FEATURE_LABELS[var_simple]})")
-        ax.set_ylabel("MedHouseVal (valor de vivienda)")
-        ax.set_title(f"ŷ = {w_used:.3f}·x + {b_used:.3f}")
-        st.pyplot(fig)
+        # Gráfico interactivo con plotly
+        fig_px = px.scatter(df, x=var_simple, y="MedHouseVal", opacity=0.25, color_discrete_sequence=["#4C72B0"])
+        # añadir línea de predicción
+        x_line = np.linspace(df[var_simple].min(), df[var_simple].max(), 100)
+        y_line = w_used * x_line + b_used
+        fig_px.add_traces(px.line(x=x_line, y=y_line, color_discrete_sequence=["#E15759"]).data)
+        fig_px.update_layout(height=420, title=f"ŷ = {w_used:.3f}·x + {b_used:.3f}")
+        st.plotly_chart(fig_px, use_container_width=True)
 
     st.caption(
         "💡 En modo manual, intenta minimizar el MSE moviendo los sliders. "
@@ -191,7 +263,7 @@ El error cuadrático medio mide qué tan mal predice el modelo:
 $$J(w) = \frac{1}{n}\sum_{i=1}^{n}(w x_i + b - y_i)^2$$
 
 Es una función con forma de "tazón": tiene un único mínimo. El **gradiente** es la pendiente
-de esa curva en un punto — indica hacia dónde y qué tanto hay que mover `w` para reducir el error.
+ de esa curva en un punto — indica hacia dónde y qué tanto hay que mover `w` para reducir el error.
 """
     )
 
@@ -369,15 +441,10 @@ Con el modelo entrenado, necesitamos medir qué tan bien predice sobre datos **n
         col_j.metric("RMSE", f"{rmse:.3f}")
         col_k.metric("R²", f"{r2:.3f}", help="1.0 = predicción perfecta, 0.0 = igual que predecir siempre el promedio")
 
-        fig6, ax6 = plt.subplots(figsize=(6, 4.2))
-        ax6.scatter(y_test, y_pred_test, alpha=0.2, s=14, color="#8172B2")
-        lims = [min(y_test.min(), y_pred_test.min()), max(y_test.max(), y_pred_test.max())]
-        ax6.plot(lims, lims, "--", color="black", linewidth=1, label="Predicción perfecta")
-        ax6.set_xlabel("Valor real")
-        ax6.set_ylabel("Valor predicho")
-        ax6.set_title("Desempeño sobre datos de PRUEBA (nunca vistos)")
-        ax6.legend()
-        st.pyplot(fig6)
+        # Gráfico interactivo de real vs predicho
+        fig6 = px.scatter(x=y_test, y=y_pred_test, labels={"x":"Valor real","y":"Valor predicho"}, opacity=0.6, trendline="ols")
+        fig6.update_layout(title="Desempeño sobre datos de PRUEBA (nunca vistos)", height=420)
+        st.plotly_chart(fig6, use_container_width=True)
 
         st.caption(
             "💡 Estas métricas se calculan sobre el conjunto de **prueba**, no el de entrenamiento — "
