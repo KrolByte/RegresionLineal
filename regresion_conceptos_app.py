@@ -24,24 +24,17 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 st.set_page_config(page_title="Regresión — Conceptos clave", layout="wide")
 
-# -- Apariencia CSS (fondo, tipografías, tarjetas) --------------------------------
-st.markdown(
-    """
-    <style>
-    /* Fondo con degradado suave */
-    .stApp {
-        background: linear-gradient(120deg, #f5fbff 0%, #eef9f3 50%, #fffaf0 100%);
-    }
-    /* Encabezado grande */
-    .big-title {font-size:28px; font-weight:700; color:#0B3954;}
-    /* Tarjetas de métricas personalizadas */
-    .metric-box {background: linear-gradient(90deg,#ffffffcc,#f0f8ffcc); padding:10px; border-radius:8px;}
-    /* Tabla bonita */
-    .dataframe thead tr th {background-color: #0B3954; color: white;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# Paleta corporativa (colores coherentes con la app)
+CORP = {
+    "primary": "#0B3954",   # azul oscuro (encabezados)
+    "secondary": "#55A868", # verde (coeficientes)
+    "accent": "#E15759",    # rojo/rosa (líneas de predicción / resaltado)
+    "muted": "#8172B2",     # morado suave (puntos)
+    "bg_start": "#f5fbff",
+    "bg_mid": "#eef9f3",
+    "bg_end": "#fffaf0",
+    "table_header": "#0B3954",
+}
 
 FEATURES = ["MedInc", "HouseAge", "AveRooms", "AveBedrms", "Population", "AveOccup"]
 FEATURE_LABELS = {
@@ -62,7 +55,7 @@ def cargar_datos():
     df = housing.frame.sample(n=1200, random_state=42).reset_index(drop=True)
     return df
 
-# Añadimos una columna de fecha sintética para poder filtrar por rango
+# Añadimos una columna de fecha sintética para poder filtrar por rango si no hay fecha real
 def añadir_fechas(df, inicio="1990-01-01", fin="1992-12-31"):
     df = df.copy()
     inicio = pd.to_datetime(inicio)
@@ -76,16 +69,62 @@ STATION_NAME = "Estación Central — CA Housing"
 STATION_CODE = "EC-CA-1990"
 DATA_QUALITY = "Alta (completa, sin valores faltantes)"
 
-# Cargar y preparar datos
+# Cargar datos base (sin fecha aún)
 df = cargar_datos()
-df = añadir_fechas(df)
+
+# -- Apariencia CSS (fondo, tipografías, tarjetas) --------------------------------
+st.markdown(
+    f"""
+    <style>
+    /* Fondo con degradado suave */
+    .stApp {{
+        background: linear-gradient(120deg, {CORP['bg_start']} 0%, {CORP['bg_mid']} 50%, {CORP['bg_end']} 100%);
+    }}
+    /* Encabezado grande */
+    .big-title {{font-size:28px; font-weight:700; color:{CORP['primary']};}}
+    /* Tarjetas de métricas personalizadas */
+    .metric-box {{background: linear-gradient(90deg,#ffffffcc,#f0f8ffcc); padding:10px; border-radius:8px;}}
+    /* Tabla bonita */
+    .dataframe thead tr th {{background-color: {CORP['table_header']}; color: white;}}
+    /* Ajustes para el expander */
+    .stExpander {{ background-color: rgba(255,255,255,0.6); border-radius:8px; padding:8px; }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ------------------ BARRA LATERAL: configuración mínima (solo rango de fechas) ----
 with st.sidebar:
     st.markdown(f"<div class='metric-box'><strong>{STATION_NAME}</strong><br>Codigo: {STATION_CODE}<br>Calidad: {DATA_QUALITY}</div>", unsafe_allow_html=True)
     st.markdown("---")
     st.header("🔎 Filtros")
-    st.markdown("Los metadatos de estación son estáticos arriba; aquí solo puedes filtrar por fechas.")
+    st.markdown("Los metadatos de estación son estáticos arriba; puedes subir un CSV con columna 'date' para usar fechas reales, o usar las fechas sintéticas por defecto.")
+
+    uploaded = st.file_uploader("(Opcional) Subir CSV con columna 'date' para usar fechas reales", type=["csv"]) 
+    if uploaded is not None:
+        try:
+            df_up = pd.read_csv(uploaded)
+            # Verificar columnas mínimas (MedHouseVal y features)
+            required = set(FEATURES + ["MedHouseVal"]) 
+            missing = required - set(df_up.columns)
+            if missing:
+                st.warning(f"El CSV subido no contiene todas las columnas requeridas: {sorted(list(missing))}. Se ignorará y se usará el dataset interno.")
+            else:
+                if "date" in df_up.columns:
+                    df_up["date"] = pd.to_datetime(df_up["date"], errors="coerce")
+                    if df_up["date"].isna().all():
+                        st.warning("La columna 'date' existe pero no se pudo parsear. Se usará fecha sintética.")
+                    else:
+                        df = df_up.copy()
+                        st.success("CSV cargado y columna 'date' detectada — usando fechas reales del archivo.")
+                else:
+                    st.warning("El CSV no contiene columna 'date' — se usará la fecha sintética por defecto.")
+        except Exception as e:
+            st.error(f"Error al leer el CSV: {e}")
+
+    # Si no existe columna 'date' en df, añadimos fechas sintéticas
+    if "date" not in df.columns:
+        df = añadir_fechas(df)
 
     date_min = df["date"].min().date()
     date_max = df["date"].max().date()
@@ -101,7 +140,8 @@ with st.sidebar:
     st.metric("Registros", f"{len(df)}")
     st.metric("Precio medio (MedHouseVal)", f"{df['MedHouseVal'].mean():.3f}")
 
-st.markdown("<h1 class='big-title'>📈 Regresión — Conceptos clave</h1>", unsafe_allow_html=True)
+# Encabezado principal
+st.markdown(f"<h1 class='big-title'>📈 Regresión — Conceptos clave</h1>", unsafe_allow_html=True)
 st.markdown(
     "La regresión permite predecir valores numéricos a partir de datos históricos. "
     "Esta app recorre, de forma interactiva, las piezas que componen un modelo de regresión: "
@@ -176,13 +216,13 @@ Mueve `w` (pendiente) y `b` (intercepto) manualmente y observa cómo cambia el e
         st.metric("Error actual (MSE)", f"{mse_actual:.4f}")
 
     with col_b:
-        # Gráfico interactivo con plotly
-        fig_px = px.scatter(df, x=var_simple, y="MedHouseVal", opacity=0.25, color_discrete_sequence=["#4C72B0"])
+        # Gráfico interactivo con plotly usando colores corporativos
+        fig_px = px.scatter(df, x=var_simple, y="MedHouseVal", opacity=0.25, color_discrete_sequence=[CORP['muted']])
         # añadir línea de predicción
         x_line = np.linspace(df[var_simple].min(), df[var_simple].max(), 100)
         y_line = w_used * x_line + b_used
-        fig_px.add_traces(px.line(x=x_line, y=y_line, color_discrete_sequence=["#E15759"]).data)
-        fig_px.update_layout(height=420, title=f"ŷ = {w_used:.3f}·x + {b_used:.3f}")
+        fig_px.add_traces(px.line(x=x_line, y=y_line, color_discrete_sequence=[CORP['accent']]).data)
+        fig_px.update_layout(height=420, title=f"ŷ = {w_used:.3f}·x + {b_used:.3f}", title_font_color=CORP['primary'])
         st.plotly_chart(fig_px, use_container_width=True)
 
     st.caption(
@@ -228,7 +268,7 @@ Selecciona qué variables incluir y observa cómo cambian los coeficientes y el 
             st.markdown("**Coeficientes aprendidos**")
             coefs = pd.Series(modelo_m.coef_, index=vars_multiples).sort_values()
             fig2, ax2 = plt.subplots(figsize=(5, 3.5))
-            coefs.plot(kind="barh", ax=ax2, color="#55A868")
+            coefs.plot(kind="barh", ax=ax2, color=CORP['secondary'])
             ax2.axvline(0, color="black", linewidth=0.8)
             ax2.set_xlabel("Coeficiente (w)")
             st.pyplot(fig2)
@@ -237,7 +277,7 @@ Selecciona qué variables incluir y observa cómo cambian los coeficientes y el 
         with col_d:
             st.markdown("**Real vs. predicho**")
             fig3, ax3 = plt.subplots(figsize=(5, 3.5))
-            ax3.scatter(y, y_pred_m, alpha=0.15, s=12, color="#C44E52")
+            ax3.scatter(y, y_pred_m, alpha=0.15, s=12, color=CORP['accent'])
             lims = [min(y.min(), y_pred_m.min()), max(y.max(), y_pred_m.max())]
             ax3.plot(lims, lims, "--", color="black", linewidth=1)
             ax3.set_xlabel("Valor real")
@@ -300,9 +340,9 @@ Es una función con forma de "tazón": tiene un único mínimo. El **gradiente**
 
     with col_e:
         fig4, ax4 = plt.subplots(figsize=(6, 4.2))
-        ax4.plot(w_range, costos, color="#4C72B0", linewidth=2)
+        ax4.plot(w_range, costos, color=CORP['primary'], linewidth=2)
         ax4.axvline(w_opt, color="green", linestyle="--", linewidth=1, label=f"w óptimo ≈ {w_opt:.3f}")
-        ax4.scatter([w_probe], [costo_actual], color="red", s=80, zorder=5, label="Tu punto actual")
+        ax4.scatter([w_probe], [costo_actual], color=CORP['accent'], s=80, zorder=5, label="Tu punto actual")
 
         # Recta tangente (visualiza el gradiente)
         tang_x = np.linspace(w_probe - 0.6, w_probe + 0.6, 20)
@@ -405,7 +445,7 @@ with tab5:
 Con el modelo entrenado, necesitamos medir qué tan bien predice sobre datos **nunca vistos**:
 
 - **MAE** — error absoluto promedio, en las unidades originales.
-- **RMSE** — penaliza más los errores grandes; es $\sqrt{MSE}$.
+- **RMSE** — penaliza más los errores grandes; es $\\sqrt{MSE}$.
 - **R²** — proporción de la variabilidad de `y` que el modelo logra explicar (0 a 1).
 """
     )
@@ -441,9 +481,10 @@ Con el modelo entrenado, necesitamos medir qué tan bien predice sobre datos **n
         col_j.metric("RMSE", f"{rmse:.3f}")
         col_k.metric("R²", f"{r2:.3f}", help="1.0 = predicción perfecta, 0.0 = igual que predecir siempre el promedio")
 
-        # Gráfico interactivo de real vs predicho
-        fig6 = px.scatter(x=y_test, y=y_pred_test, labels={"x":"Valor real","y":"Valor predicho"}, opacity=0.6, trendline="ols")
-        fig6.update_layout(title="Desempeño sobre datos de PRUEBA (nunca vistos)", height=420)
+        # Gráfico interactivo de real vs predicho usando paleta corporativa
+        fig6 = px.scatter(x=y_test, y=y_pred_test, labels={"x":"Valor real","y":"Valor predicho"}, opacity=0.6, color_discrete_sequence=[CORP['muted']])
+        fig6.add_traces(px.line(x=[y_test.min(), y_test.max()], y=[y_test.min(), y_test.max()], color_discrete_sequence=[CORP['primary']]).data)
+        fig6.update_layout(title="Desempeño sobre datos de PRUEBA (nunca vistos)", height=420, title_font_color=CORP['primary'])
         st.plotly_chart(fig6, use_container_width=True)
 
         st.caption(
